@@ -1,14 +1,14 @@
 var gutil       = require('gulp-util'),
     requirejs   = require('requirejs'),
     PluginError = gutil.PluginError,
-    File        = gutil.File,
-    es          = require('event-stream')
+    defaults    = require('lodash.defaults'),
+    through2    = require('through2');
 
 // Consts
 const PLUGIN_NAME = 'gulp-requirejs';
 
 
-module.exports = function(opts) {
+module.exports = function(options) {
 
     'use strict';
 
@@ -16,42 +16,38 @@ module.exports = function(opts) {
         throw new PluginError(PLUGIN_NAME, 'Missing options array!');
     }
 
-    if (!opts.out && typeof opts.out !== 'string') {
-        throw new PluginError(PLUGIN_NAME, 'Only single file outputs are supported right now, please pass a valid output file name!');
+    if (opts.out) {
+        throw new PluginError(PLUGIN_NAME, 'Custom file outputs are not supported!');
     }
 
     if (!opts.baseUrl) {
-        throw new PluginError(PLUGIN_NAME, 'Pipeing dirs/files is not supported right now, please specify the base path for your script.');
+        throw new PluginError(PLUGIN_NAME, 'Please specify the base path for your scripts to connect dependencies.');
     }
 
-    // create the stream and save the file name (opts.out will be replaced by a callback function later)
-    var _s     = es.pause(),
-        _fName = opts.out;
+    return through2.obj(function (file, enc, cb) {
 
-    // just a small wrapper around the r.js optimizer, we write a new gutil.File (vinyl) to the Stream, mocking a file, which can be handled
-    // regular gulp plugins (i hope...).
-    
-    // try {
-        optimize(opts, function(text) {
-            _s.resume();
-            _s.end(new File({
-                path: _fName,
-                contents: new Buffer(text)
-            }));
+        if (file.isNull()) {
+            return cb(null, file);
+        }
+
+        if (file.isStream()) {
+            return cb(new PluginError(PLUGIN_NAME, 'Streaming not supported'));
+        }
+
+
+        // copy `options` with apply defaults
+        var opts = defaults(options, {
+            path: {}
         });
-    // } catch (err) {
-    //     _s.emit('error', err);
-    // }
 
-    
+        opts.out = function (text) {
 
-    // return the stream for chain .pipe()ing
-    return _s;
-}
+            file.contents = new Buffer(text);
 
-// a small wrapper around the r.js optimizer
-function optimize(opts, cb) {
-    opts.out = cb;
-    opts.optimize = 'none';
-    requirejs.optimize(opts);
+            cb(null, file);
+        };
+
+
+        requirejs.optimize(opts);
+    });
 }
